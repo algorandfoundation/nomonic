@@ -46,6 +46,19 @@ strip_token() {
   STRIP_RESULT=$(echo "$core" | tr '[:upper:]' '[:lower:]')
 }
 
+# Annotation tokens commonly used to label seed phrase words.
+# Treated as transparent (SKIP) in both single-line and cross-line detection.
+is_annotation_token() {
+  case "$1" in
+    word|words|mnemonic|seed|phrase|key|backup|recovery|secret|passphrase)
+      return 0
+      ;;
+    *)
+      return 1
+      ;;
+  esac
+}
+
 # Flush cross-line accumulation if it meets the threshold.
 # Uses global vars: cross_words, cross_count, cross_start_line
 flush_cross_line() {
@@ -181,6 +194,10 @@ while IFS= read -r file; do
             line_has_any_word=1
             ;;
           *)
+            # Check annotation tokens before BIP39
+            if is_annotation_token "$STRIP_RESULT"; then
+              continue
+            fi
             line_has_any_word=1
             if is_bip39 "$STRIP_RESULT"; then
               consecutive=$((consecutive + 1))
@@ -210,7 +227,13 @@ while IFS= read -r file; do
       fi
 
       # Cross-line accumulation
-      if [[ $line_reported -eq 1 ]]; then
+      # Blank/whitespace-only lines and annotation-only lines are transparent
+      trimmed_content=$(echo "$content" | tr -d '[:space:]')
+      if [[ -z "$trimmed_content" ]]; then
+        : # blank line — transparent
+      elif [[ $line_has_any_word -eq 0 && $line_bip39_count -eq 0 ]]; then
+        : # annotation/skip-only line — transparent
+      elif [[ $line_reported -eq 1 ]]; then
         # Already reported by single-line — flush cross-line
         flush_cross_line
       elif [[ $line_has_any_word -eq 1 && $line_has_non_bip39_word -eq 0 && $line_bip39_count -gt 0 ]]; then
@@ -225,6 +248,9 @@ while IFS= read -r file; do
           [[ -z "$token" ]] && continue
           strip_token "$token"
           [[ "$STRIP_RESULT" = "SKIP" || "$STRIP_RESULT" = "BREAK" ]] && continue
+          if is_annotation_token "$STRIP_RESULT"; then
+            continue
+          fi
           if is_bip39 "$STRIP_RESULT"; then
             if [[ -z "$cross_words" ]]; then
               cross_words="$STRIP_RESULT"

@@ -90,6 +90,32 @@ export function extractAddedLines(diff: string): AddedLine[] {
   return result
 }
 
+export interface ContentBlock {
+  content: string
+  lineMap: number[] // maps content line index → file line number (-1 for sentinels)
+}
+
+/**
+ * Build a content block from added lines, inserting empty sentinel lines
+ * between non-contiguous lines so cross-line detection doesn't span gaps.
+ */
+export function buildContentBlock(addedLines: AddedLine[]): ContentBlock {
+  const contentLines: string[] = []
+  const lineMap: number[] = []
+
+  for (let i = 0; i < addedLines.length; i++) {
+    // Insert empty sentinel between non-contiguous lines
+    if (i > 0 && addedLines[i].fileLineNumber !== addedLines[i - 1].fileLineNumber + 1) {
+      contentLines.push('')
+      lineMap.push(-1)
+    }
+    contentLines.push(addedLines[i].text)
+    lineMap.push(addedLines[i].fileLineNumber)
+  }
+
+  return { content: contentLines.join('\n'), lineMap }
+}
+
 function getThreshold(): number {
   const env = process.env.BIP39_THRESHOLD
   if (env === undefined) return 5
@@ -120,15 +146,21 @@ function main(): void {
     if (!diff) continue
 
     const addedLines = extractAddedLines(diff)
-    for (const { fileLineNumber, text } of addedLines) {
-      const violations = detectBip39Sequences(text, threshold)
-      for (const v of violations) {
-        allViolations.push({
-          file,
-          lineNumber: fileLineNumber,
-          matchedWords: v.matchedWords,
-        })
-      }
+    if (addedLines.length === 0) continue
+
+    const { content, lineMap } = buildContentBlock(addedLines)
+    const violations = detectBip39Sequences(content, threshold)
+    for (const v of violations) {
+      const blockIndex = v.lineNumber - 1
+      const fileLineNumber =
+        blockIndex < lineMap.length
+          ? lineMap[blockIndex]
+          : lineMap[lineMap.length - 1]
+      allViolations.push({
+        file,
+        lineNumber: fileLineNumber,
+        matchedWords: v.matchedWords,
+      })
     }
   }
 

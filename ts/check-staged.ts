@@ -106,7 +106,7 @@ export function buildContentBlock(addedLines: AddedLine[]): ContentBlock {
   for (let i = 0; i < addedLines.length; i++) {
     // Insert empty sentinel between non-contiguous lines
     if (i > 0 && addedLines[i].fileLineNumber !== addedLines[i - 1].fileLineNumber + 1) {
-      contentLines.push('')
+      contentLines.push('---bip39-guard-sentinel---')
       lineMap.push(-1)
     }
     contentLines.push(addedLines[i].text)

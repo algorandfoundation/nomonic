@@ -76,7 +76,8 @@ function analyzeLine(line: string): {
  * Detection operates in two modes:
  * 1. **Single-line**: finds sequences of BIP39 words within a line (handles mixed content).
  * 2. **Cross-line**: accumulates words across consecutive "BIP39-pure" lines (where every
- *    non-skip token is a BIP39 word). Catches one-per-line, numbered lists, and grid formats.
+ *    non-skip token is a BIP39 word). Blank or whitespace-only lines are transparent and do
+ *    not break the sequence. Catches one-per-line, numbered lists, formatted blocks, and grids.
  *
  * Tokens are stripped of surrounding punctuation (quotes, commas, brackets, etc.)
  * before matching. Interior punctuation (hyphens, apostrophes) still disqualifies a token.

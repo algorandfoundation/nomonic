@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import { detectBip39Sequences } from './detect'
-import { extractAddedLines } from './check-staged'
+import { extractAddedLines, buildContentBlock } from './check-staged'
 
 describe('extractAddedLines', () => {
   it('parses hunk headers and returns correct file line numbers', () => {
@@ -79,6 +79,76 @@ describe('extractAddedLines', () => {
       ' context',
     ].join('\n')
     expect(extractAddedLines(diff)).toEqual([])
+  })
+})
+
+describe('buildContentBlock', () => {
+  it('joins contiguous added lines without gaps', () => {
+    const result = buildContentBlock([
+      { fileLineNumber: 5, text: 'abandon' },
+      { fileLineNumber: 6, text: 'ability' },
+      { fileLineNumber: 7, text: 'able' },
+    ])
+    expect(result.content).toBe('abandon\nability\nable')
+    expect(result.lineMap).toEqual([5, 6, 7])
+  })
+
+  it('inserts empty line between non-contiguous added lines', () => {
+    const result = buildContentBlock([
+      { fileLineNumber: 5, text: 'abandon' },
+      { fileLineNumber: 50, text: 'ability' },
+    ])
+    // Gap between line 5 and 50 → empty sentinel line inserted
+    expect(result.content).toBe('abandon\n\nability')
+    expect(result.lineMap).toEqual([5, -1, 50])
+  })
+
+  it('prevents cross-line detection from spanning hunk gaps', () => {
+    // Simulate two hunks: 3 BIP39 words at lines 1-3, then 3 more at lines 50-52
+    // Without gap handling, these 6 words would be detected as one cross-line sequence
+    const block = buildContentBlock([
+      { fileLineNumber: 1, text: 'abandon' },
+      { fileLineNumber: 2, text: 'ability' },
+      { fileLineNumber: 3, text: 'able' },
+      { fileLineNumber: 50, text: 'about' },
+      { fileLineNumber: 51, text: 'above' },
+      { fileLineNumber: 52, text: 'absent' },
+    ])
+    const violations = detectBip39Sequences(block.content)
+    // Each group of 3 is below threshold (5) — should NOT detect
+    expect(violations).toEqual([])
+  })
+
+  it('detects cross-line mnemonic within a single contiguous hunk', () => {
+    const block = buildContentBlock([
+      { fileLineNumber: 10, text: 'abandon' },
+      { fileLineNumber: 11, text: 'ability' },
+      { fileLineNumber: 12, text: 'able' },
+      { fileLineNumber: 13, text: 'about' },
+      { fileLineNumber: 14, text: 'above' },
+    ])
+    const violations = detectBip39Sequences(block.content)
+    expect(violations).toHaveLength(1)
+    expect(violations[0].matchedWords).toHaveLength(5)
+    // Map violation line number back to file line
+    const fileLineNumber = block.lineMap[violations[0].lineNumber - 1]
+    expect(fileLineNumber).toBe(10)
+  })
+
+  it('maps violation line numbers correctly with gaps', () => {
+    // 5 contiguous BIP39 words at lines 20-24, preceded by a non-contiguous line
+    const block = buildContentBlock([
+      { fileLineNumber: 5, text: 'some code' },
+      { fileLineNumber: 20, text: 'abandon' },
+      { fileLineNumber: 21, text: 'ability' },
+      { fileLineNumber: 22, text: 'able' },
+      { fileLineNumber: 23, text: 'about' },
+      { fileLineNumber: 24, text: 'above' },
+    ])
+    const violations = detectBip39Sequences(block.content)
+    expect(violations).toHaveLength(1)
+    const fileLineNumber = block.lineMap[violations[0].lineNumber - 1]
+    expect(fileLineNumber).toBe(20)
   })
 })
 

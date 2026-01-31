@@ -120,15 +120,24 @@ function main(): void {
     if (!diff) continue
 
     const addedLines = extractAddedLines(diff)
-    for (const { fileLineNumber, text } of addedLines) {
-      const violations = detectBip39Sequences(text, threshold)
-      for (const v of violations) {
-        allViolations.push({
-          file,
-          lineNumber: fileLineNumber,
-          matchedWords: v.matchedWords,
-        })
-      }
+    if (addedLines.length === 0) continue
+
+    // Join added lines into a block so cross-line detection works,
+    // then map violation line numbers back to real file lines.
+    const contentBlock = addedLines.map((l) => l.text).join('\n')
+    const violations = detectBip39Sequences(contentBlock, threshold)
+    for (const v of violations) {
+      // v.lineNumber is 1-based within the content block
+      const blockIndex = v.lineNumber - 1
+      const fileLineNumber =
+        blockIndex < addedLines.length
+          ? addedLines[blockIndex].fileLineNumber
+          : addedLines[addedLines.length - 1].fileLineNumber
+      allViolations.push({
+        file,
+        lineNumber: fileLineNumber,
+        matchedWords: v.matchedWords,
+      })
     }
   }
 

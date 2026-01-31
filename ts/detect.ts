@@ -30,8 +30,55 @@ function stripToken(token: string): string | null | 'skip' {
 }
 
 /**
+ * Analyze a single line's tokens and return the BIP39 words found,
+ * along with whether the line is "BIP39-pure" (every non-skip token is BIP39).
+ */
+function analyzeLine(line: string): {
+  bip39Words: string[]
+  isBip39Pure: boolean
+  hasContent: boolean
+} {
+  const tokens = line
+    .split(/\s+/)
+    .filter(Boolean)
+    .map((t) => t.toLowerCase())
+
+  if (tokens.length === 0) {
+    return { bip39Words: [], isBip39Pure: false, hasContent: false }
+  }
+
+  const bip39Words: string[] = []
+  let hasNonBip39Word = false
+  let hasAnyWord = false
+
+  for (const token of tokens) {
+    const stripped = stripToken(token)
+
+    if (stripped === 'skip') continue // numbering, punctuation — ignore
+
+    hasAnyWord = true
+    if (stripped !== null && BIP39_WORDS.has(stripped)) {
+      bip39Words.push(stripped)
+    } else {
+      hasNonBip39Word = true
+    }
+  }
+
+  return {
+    bip39Words,
+    isBip39Pure: hasAnyWord && !hasNonBip39Word,
+    hasContent: tokens.length > 0,
+  }
+}
+
+/**
  * Detect sequences of consecutive BIP39 mnemonic words in text content.
- * Returns violations where `threshold` or more consecutive BIP39 words appear on a single line.
+ * Returns violations where `threshold` or more consecutive BIP39 words appear.
+ *
+ * Detection operates in two modes:
+ * 1. **Single-line**: finds sequences of BIP39 words within a line (handles mixed content).
+ * 2. **Cross-line**: accumulates words across consecutive "BIP39-pure" lines (where every
+ *    non-skip token is a BIP39 word). Catches one-per-line, numbered lists, and grid formats.
  *
  * Tokens are stripped of surrounding punctuation (quotes, commas, brackets, etc.)
  * before matching. Interior punctuation (hyphens, apostrophes) still disqualifies a token.
@@ -46,6 +93,10 @@ export function detectBip39Sequences(
   const violations: Bip39Violation[] = []
   const lines = content.split('\n')
 
+  // Track which lines are already reported by single-line detection
+  const reportedLines = new Set<number>()
+
+  // ── Pass 1: Single-line detection ──────────────────────────────────
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i]
     const tokens = line
@@ -59,10 +110,7 @@ export function detectBip39Sequences(
     for (let j = 0; j < tokens.length; j++) {
       const stripped = stripToken(tokens[j])
 
-      if (stripped === 'skip') {
-        // Non-alpha token (numbering, punctuation) — don't break the sequence
-        continue
-      }
+      if (stripped === 'skip') continue
 
       if (stripped !== null && BIP39_WORDS.has(stripped)) {
         consecutive++
@@ -74,21 +122,59 @@ export function detectBip39Sequences(
             matchedWords: matchedWords.slice(-consecutive),
             line: line,
           })
+          reportedLines.add(i)
         }
         consecutive = 0
         matchedWords.length = 0
       }
     }
 
-    // Check trailing sequence at end of line
     if (consecutive >= threshold) {
       violations.push({
         lineNumber: i + 1,
         matchedWords: matchedWords.slice(-consecutive),
         line: line,
       })
+      reportedLines.add(i)
     }
   }
+
+  // ── Pass 2: Cross-line detection ───────────────────────────────────
+  // Accumulate BIP39 words across consecutive BIP39-pure lines.
+  let crossLineWords: string[] = []
+  let crossLineStart = -1
+
+  function flushCrossLine() {
+    if (crossLineWords.length >= threshold) {
+      violations.push({
+        lineNumber: crossLineStart + 1,
+        matchedWords: [...crossLineWords],
+        line: lines[crossLineStart],
+      })
+    }
+    crossLineWords = []
+    crossLineStart = -1
+  }
+
+  for (let i = 0; i < lines.length; i++) {
+    // Skip lines already fully reported by single-line detection
+    if (reportedLines.has(i)) {
+      flushCrossLine()
+      continue
+    }
+
+    const { bip39Words, isBip39Pure } = analyzeLine(lines[i])
+
+    if (isBip39Pure && bip39Words.length > 0) {
+      if (crossLineStart === -1) crossLineStart = i
+      crossLineWords.push(...bip39Words)
+    } else {
+      flushCrossLine()
+    }
+  }
+
+  // Flush any remaining cross-line accumulation
+  flushCrossLine()
 
   return violations
 }

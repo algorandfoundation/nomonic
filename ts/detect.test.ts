@@ -217,4 +217,135 @@ describe('detectBip39Sequences', () => {
     expect(result[0].matchedWords).toHaveLength(7)
     expect(result[0].matchedWords[6]).toBe('abstract')
   })
+
+  // ── Cross-line detection ───────────────────────────────────────────
+
+  it('detects one-word-per-line BIP39 mnemonic', () => {
+    const content = [
+      'abandon',
+      'ability',
+      'able',
+      'about',
+      'above',
+    ].join('\n')
+    const result = detectBip39Sequences(content)
+    expect(result).toHaveLength(1)
+    expect(result[0].matchedWords).toEqual([
+      'abandon',
+      'ability',
+      'able',
+      'about',
+      'above',
+    ])
+    expect(result[0].lineNumber).toBe(1)
+  })
+
+  it('detects numbered one-word-per-line BIP39 mnemonic', () => {
+    const content = [
+      '1. abandon',
+      '2. ability',
+      '3. able',
+      '4. about',
+      '5. above',
+    ].join('\n')
+    const result = detectBip39Sequences(content)
+    expect(result).toHaveLength(1)
+    expect(result[0].matchedWords).toEqual([
+      'abandon',
+      'ability',
+      'able',
+      'about',
+      'above',
+    ])
+  })
+
+  it('detects 25-word Algorand mnemonic in numbered grid format', () => {
+    // Simulates copying from the Algorand wallet grid UI (3-column layout)
+    const content = [
+      '1. force 2. clay 3. airport',
+      '4. shoot 5. fence 6. fine',
+      '7. year 8. exhaust 9. fan',
+      '10. fun 11. coffee 12. cable',
+      '13. glove 14. genre 15. globe',
+      '16. exact 17. color 18. assault',
+      '19. govern 20. potato 21. radio',
+      '22. rice 23. bargain 24. abstract',
+      '25. moral',
+    ].join('\n')
+    const result = detectBip39Sequences(content)
+    expect(result).toHaveLength(1)
+    expect(result[0].matchedWords).toHaveLength(25)
+    expect(result[0].matchedWords[0]).toBe('force')
+    expect(result[0].matchedWords[24]).toBe('moral')
+  })
+
+  it('detects plain 25-word Algorand mnemonic one-per-line', () => {
+    const words = [
+      'force', 'clay', 'airport', 'shoot', 'fence',
+      'fine', 'year', 'exhaust', 'fan', 'fun',
+      'coffee', 'cable', 'glove', 'genre', 'globe',
+      'exact', 'color', 'assault', 'govern', 'potato',
+      'radio', 'rice', 'bargain', 'abstract', 'moral',
+    ]
+    const content = words.join('\n')
+    const result = detectBip39Sequences(content)
+    expect(result).toHaveLength(1)
+    expect(result[0].matchedWords).toHaveLength(25)
+  })
+
+  it('cross-line detection stops at non-BIP39 lines', () => {
+    const content = [
+      'abandon',
+      'ability',
+      'able',
+      'some random code here',
+      'about',
+      'above',
+    ].join('\n')
+    // Lines 1-3: 3 BIP39 words (below threshold)
+    // Line 4: non-BIP39 → breaks sequence
+    // Lines 5-6: 2 BIP39 words (below threshold)
+    const result = detectBip39Sequences(content)
+    expect(result).toEqual([])
+  })
+
+  it('cross-line detection stops at empty lines', () => {
+    const content = [
+      'abandon',
+      'ability',
+      'able',
+      '',
+      'about',
+      'above',
+    ].join('\n')
+    const result = detectBip39Sequences(content)
+    expect(result).toEqual([])
+  })
+
+  it('does NOT cross-line flag lines with mixed BIP39 and non-BIP39 words', () => {
+    // Each line has BIP39 words mixed with non-BIP39 — this is normal prose
+    const content = [
+      'we need to abandon this plan',
+      'the ability to act is key',
+      'they are able to help us',
+      'what about the issue here',
+      'it is above my pay grade',
+    ].join('\n')
+    const result = detectBip39Sequences(content)
+    expect(result).toEqual([])
+  })
+
+  it('detects 12-word BIP39 mnemonic in numbered pairs per line', () => {
+    const content = [
+      '1. abandon 2. abandon',
+      '3. abandon 4. abandon',
+      '5. abandon 6. abandon',
+      '7. abandon 8. abandon',
+      '9. abandon 10. abandon',
+      '11. abandon 12. about',
+    ].join('\n')
+    const result = detectBip39Sequences(content)
+    expect(result).toHaveLength(1)
+    expect(result[0].matchedWords).toHaveLength(12)
+  })
 })
